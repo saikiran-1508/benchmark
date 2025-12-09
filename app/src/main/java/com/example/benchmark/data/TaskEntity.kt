@@ -7,6 +7,8 @@ import androidx.room.PrimaryKey
 data class Task(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val name: String,
-    val estimatedTime: String, // e.g., "45 mins"
+    val estimatedTime: String,
+    val startTime: String,
+    val day: String,          // NEW: Stores "M", "T", "W", etc.
     val isCompleted: Boolean = false
 )

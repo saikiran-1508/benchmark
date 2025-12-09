@@ -1,6 +1,7 @@
 package com.example.benchmark.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
@@ -14,20 +15,30 @@ import androidx.compose.ui.unit.dp
 import com.example.benchmark.ui.theme.*
 
 @Composable
-fun DaySelector() {
-    val days = listOf("M", "T", "W", "T", "F")
+fun DaySelector(
+    selectedDay: String,
+    onDaySelected: (String) -> Unit
+) {
+    // We use a list of Pairs: "Unique ID" to "Display Label"
+    // Order changed to start with SUNDAY as you requested.
+    val days = listOf(
+        "Sunday"    to "S",
+        "Monday"    to "M",
+        "Tuesday"   to "T",
+        "Wednesday" to "W",
+        "Thursday"  to "T",
+        "Friday"    to "F",
+        "Saturday"  to "S"
+    )
 
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
-        days.forEachIndexed { index, day ->
-            // Simulating Wednesday (Index 2) being selected
-            val isSelected = index == 2
+        days.forEach { (fullDayName, label) ->
+            // Logic: Compare the FULL NAME ("Tuesday"), not the label ("T")
+            val isSelected = (fullDayName == selectedDay)
 
-            // LOGIC:
-            // If selected -> Background is White (DarkAccent), Text is Black.
-            // If not -> Background is Transparent, Text is Gray (SecondaryText).
             val bgColor = if (isSelected) DarkAccent else Color.Transparent
             val textColor = if (isSelected) Color.Black else SecondaryText
 
@@ -35,11 +46,12 @@ fun DaySelector() {
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(bgColor),
+                    .background(bgColor)
+                    .clickable { onDaySelected(fullDayName) }, // Pass full name back
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = day,
+                    text = label, // Show only the letter
                     color = textColor,
                     fontWeight = FontWeight.Bold
                 )

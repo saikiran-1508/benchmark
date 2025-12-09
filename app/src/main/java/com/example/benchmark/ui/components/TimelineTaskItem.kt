@@ -19,8 +19,6 @@ import com.example.benchmark.ui.theme.*
 
 @Composable
 fun TimelineTaskItem(task: Task) {
-    // Determine bar color based on status (for future use)
-    // For now, active tasks are Black (DarkAccent), completed could be LightAccent
     val barColor = if (task.isCompleted) LightAccent else DarkAccent
     val textColor = if (task.isCompleted) SecondaryText else PrimaryText
 
@@ -30,14 +28,14 @@ fun TimelineTaskItem(task: Task) {
             .padding(horizontal = 16.dp)
             .height(IntrinsicSize.Min)
     ) {
-        // 1. Time Column
+        // 1. Time Column (Now shows REAL Start Time)
         Column(
-            modifier = Modifier.width(50.dp),
+            modifier = Modifier.width(60.dp), // Slightly wider for "10:00 AM"
             verticalArrangement = Arrangement.Top,
             horizontalAlignment = Alignment.End
         ) {
             Text(
-                text = "10 AM", // Placeholder
+                text = task.startTime, // <--- CHANGED HERE
                 fontSize = 12.sp,
                 color = SecondaryText,
                 fontWeight = FontWeight.Medium
@@ -46,7 +44,7 @@ fun TimelineTaskItem(task: Task) {
 
         Spacer(modifier = Modifier.width(12.dp))
 
-        // 2. The Vertical Line (UPDATED to use DividerColor)
+        // 2. Vertical Line
         Box(
             modifier = Modifier
                 .width(2.dp)
@@ -56,19 +54,16 @@ fun TimelineTaskItem(task: Task) {
 
         Spacer(modifier = Modifier.width(12.dp))
 
-        // 3. The Task Card
+        // 3. Task Card
         Card(
             colors = CardDefaults.cardColors(containerColor = CardColor),
-            // Added a subtle border for contrast in B&W theme
             border = androidx.compose.foundation.BorderStroke(1.dp, DividerColor),
             shape = RoundedCornerShape(16.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp), // Flatter look for B&W
             modifier = Modifier
                 .weight(1f)
                 .padding(bottom = 16.dp)
         ) {
             Row(modifier = Modifier.padding(16.dp)) {
-                // Indicator Bar (UPDATED to use dynamic grayscale color)
                 Box(
                     modifier = Modifier
                         .width(4.dp)
@@ -87,7 +82,7 @@ fun TimelineTaskItem(task: Task) {
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Est: ${task.estimatedTime}",
+                        text = "Duration: ${task.estimatedTime}",
                         fontSize = 12.sp,
                         color = SecondaryText
                     )

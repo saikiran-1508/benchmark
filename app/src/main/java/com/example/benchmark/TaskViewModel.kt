@@ -11,12 +11,19 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
     private val db = AppDatabase.getDatabase(application)
     private val dao = db.taskDao()
 
-    // Holds the list of tasks to show on screen
     val tasks = dao.getAllTasks()
 
-    fun addTask(name: String, time: String) {
+    // Updated to accept 'day'
+    fun addTask(name: String, duration: String, startTime: String, day: String) {
         viewModelScope.launch {
-            dao.insertTask(Task(name = name, estimatedTime = time))
+            dao.insertTask(
+                Task(
+                    name = name,
+                    estimatedTime = duration,
+                    startTime = startTime,
+                    day = day
+                )
+            )
         }
     }
 }
