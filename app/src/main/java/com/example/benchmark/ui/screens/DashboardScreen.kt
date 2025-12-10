@@ -35,17 +35,16 @@ fun DashboardScreen(viewModel: TaskViewModel = viewModel()) {
     val context = LocalContext.current
 
     // 1. STATE:
-    // 'selectedDate' is what filters the list (The Highlighted Day)
+    // 'selectedDate': The date highlighted (Tasks are filtered by this)
     var selectedDate by remember { mutableStateOf(Calendar.getInstance()) }
 
-    // 'visibleStartDate' is the first day shown on the slide bar (The Anchor)
-    // Initially, this is Real Today.
-    var visibleStartDate by remember { mutableStateOf(Calendar.getInstance()) }
+    // 'today': The anchor. The list ALWAYS starts here.
+    // This ensures you cannot scroll backwards into the past.
+    val today = remember { Calendar.getInstance() }
 
     val displayFormatter = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
     val dbFormatter = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
 
-    // Filter tasks based on the highlight
     val selectedDateString = dbFormatter.format(selectedDate.time)
     val todaysTasks = allTasks.filter { it.day == selectedDateString }
 
@@ -56,12 +55,7 @@ fun DashboardScreen(viewModel: TaskViewModel = viewModel()) {
         { _: DatePicker, year: Int, month: Int, dayOfMonth: Int ->
             val newDate = Calendar.getInstance()
             newDate.set(year, month, dayOfMonth)
-
-            // When using Calendar Picker, we update BOTH:
-            // 1. Highlight the new date
             selectedDate = newDate
-            // 2. Move the slide bar so this date is the FIRST one shown
-            visibleStartDate = newDate.clone() as Calendar
         },
         selectedDate.get(Calendar.YEAR),
         selectedDate.get(Calendar.MONTH),
@@ -105,15 +99,12 @@ fun DashboardScreen(viewModel: TaskViewModel = viewModel()) {
                 }
             }
 
-            // The Sliding Bar
-            // We pass 'visibleStartDate' as the anchor, and 'selectedDate' as the highlight
+            // --- SCROLLABLE DAY SELECTOR ---
+            // 'startDate' is fixed to Today. You can scroll right (Future) but not left (Past).
             DaySelector(
-                startDate = visibleStartDate,
+                startDate = today,
                 selectedDate = selectedDate,
-                onDateSelected = { clickedDate ->
-                    // When clicking the bar, we ONLY move the highlight, not the bar itself
-                    selectedDate = clickedDate
-                }
+                onDateSelected = { clickedDate -> selectedDate = clickedDate }
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -148,7 +139,6 @@ fun DashboardScreen(viewModel: TaskViewModel = viewModel()) {
 }
 
 // ... AddTaskButton and SmartAddDialog remain unchanged ...
-// (Ensure they are present in your file)
 @Composable
 fun AddTaskButton(onClick: () -> Unit) {
     FloatingActionButton(
