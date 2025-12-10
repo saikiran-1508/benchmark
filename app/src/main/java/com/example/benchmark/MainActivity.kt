@@ -6,6 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -13,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.lifecycle.viewmodel.compose.viewModel // Import this!
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -38,32 +40,35 @@ class MainActivity : ComponentActivity() {
 fun MainApp() {
     val navController = rememberNavController()
 
-    // Observe the current screen to decide visibility of the Bottom Bar
+    // 1. Initialize the Auth Logic Engine
+    val authViewModel: AuthViewModel = viewModel()
+
+    // 2. Decide where to start: If logged in -> Dashboard. If not -> Login.
+    val startRoute = if (authViewModel.isUserLoggedIn()) Screen.Dashboard.route else Screen.Login.route
+
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
     Scaffold(
-        containerColor = BgColor, // Global Black Background
+        containerColor = BgColor,
         bottomBar = {
-            // LOGIC: Hide Bottom Bar on BOTH SignIn and SignUp screens
             if (currentRoute != Screen.Login.route && currentRoute != Screen.SignUp.route) {
                 BottomNavBar(navController = navController)
             }
         }
     ) { innerPadding ->
 
-        // The Container for all your pages
         NavHost(
             navController = navController,
-            startDestination = Screen.Login.route, // App starts at Sign In
+            startDestination = startRoute, // Use the smart start route
             modifier = Modifier.padding(innerPadding)
         ) {
 
             // 1. Sign In Screen
             composable(Screen.Login.route) {
                 SignInScreen(
+                    authViewModel = authViewModel, // PASS THE VIEWMODEL HERE
                     onLoginSuccess = {
-                        // Navigate to Dashboard & Clear History
                         navController.navigate(Screen.Dashboard.route) {
                             popUpTo(Screen.Login.route) { inclusive = true }
                         }
@@ -77,19 +82,19 @@ fun MainApp() {
             // 2. Sign Up Screen
             composable(Screen.SignUp.route) {
                 SignUpScreen(
+                    authViewModel = authViewModel, // PASS THE VIEWMODEL HERE
                     onSignUpSuccess = {
-                        // Navigate to Dashboard & Clear History
                         navController.navigate(Screen.Dashboard.route) {
                             popUpTo(Screen.Login.route) { inclusive = true }
                         }
                     },
                     onNavigateToLogin = {
-                        navController.popBackStack() // Go back to Sign In
+                        navController.popBackStack()
                     }
                 )
             }
 
-            // 3. Dashboard (Home)
+            // 3. Dashboard
             composable(Screen.Dashboard.route) {
                 DashboardScreen()
             }
@@ -99,13 +104,21 @@ fun MainApp() {
                 DailyFocusScreen()
             }
 
-            // 5. Profile (Placeholder)
+            // 5. Profile (With Logout Button for Testing)
             composable(Screen.Profile.route) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("Profile Page Coming Soon", color = Color.White)
+                    Button(onClick = {
+                        // Log out and go back to Login screen
+                        authViewModel.signOut()
+                        navController.navigate(Screen.Login.route) {
+                            popUpTo(0) // Clear all history
+                        }
+                    }) {
+                        Text("Log Out")
+                    }
                 }
             }
         }
