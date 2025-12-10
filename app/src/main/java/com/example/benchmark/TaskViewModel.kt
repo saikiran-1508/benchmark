@@ -22,7 +22,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                     estimatedTime = duration,
                     startTime = startTime,
                     day = day
-                )
+                ) // Remove the plus sign from here
             )
         }
     }

@@ -1,5 +1,6 @@
 package com.example.benchmark.ui.screens
 
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -15,134 +16,102 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.benchmark.AuthViewModel
 
 @Composable
 fun SignInScreen(
+    authViewModel: AuthViewModel, // We now pass the Logic Engine here
     onLoginSuccess: () -> Unit,
     onNavigateToSignUp: () -> Unit
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) } // Loading state
+    val context = LocalContext.current
 
-    // 🎨 Theme: "Deep Ocean Focus"
-    // Dark Navy -> Deep Teal -> Black
+    // Deep Ocean Theme
     val backgroundBrush = Brush.verticalGradient(
-        colors = listOf(
-            Color(0xFF0F2027),
-            Color(0xFF203A43),
-            Color(0xFF2C5364)
-        )
+        colors = listOf(Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364))
     )
-
-    // Accent Color: Neon Mint (Pops against dark blue)
     val accentColor = Color(0xFF69F0AE)
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(backgroundBrush)
-    ) {
+    Box(modifier = Modifier.fillMaxSize().background(backgroundBrush)) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
+            modifier = Modifier.fillMaxSize().padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Title
-            Text(
-                text = "BENCHMARK",
-                fontSize = 32.sp,
-                fontWeight = FontWeight.Black, // Extra Bold
-                color = Color.White,
-                letterSpacing = 3.sp
-            )
-            Text(
-                text = "Focus. Learn. Achieve.",
-                fontSize = 16.sp,
-                color = Color.White.copy(alpha = 0.7f),
-                modifier = Modifier.padding(bottom = 48.dp)
-            )
+            Text("BENCHMARK", fontSize = 32.sp, fontWeight = FontWeight.Black, color = Color.White, letterSpacing = 3.sp)
+            Text("Focus. Learn. Achieve.", fontSize = 16.sp, color = Color.White.copy(alpha = 0.7f), modifier = Modifier.padding(bottom = 48.dp))
 
-            // Email Field
+            // Email
             OutlinedTextField(
                 value = email, onValueChange = { email = it },
                 label = { Text("Email", color = Color.White.copy(alpha = 0.8f)) },
                 leadingIcon = { Icon(Icons.Default.Email, null, tint = accentColor) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+                singleLine = true, modifier = Modifier.fillMaxWidth(),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedBorderColor = accentColor, // Mint Border
-                    unfocusedBorderColor = Color.White.copy(alpha = 0.3f),
+                    focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                    focusedBorderColor = accentColor, unfocusedBorderColor = Color.White.copy(alpha = 0.3f),
                     cursorColor = accentColor
                 )
             )
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Password Field
+            // Password
             OutlinedTextField(
                 value = password, onValueChange = { password = it },
                 label = { Text("Password", color = Color.White.copy(alpha = 0.8f)) },
                 leadingIcon = { Icon(Icons.Default.Lock, null, tint = accentColor) },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true, visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 modifier = Modifier.fillMaxWidth(),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedBorderColor = accentColor,
-                    unfocusedBorderColor = Color.White.copy(alpha = 0.3f),
+                    focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                    focusedBorderColor = accentColor, unfocusedBorderColor = Color.White.copy(alpha = 0.3f),
                     cursorColor = accentColor
                 )
             )
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Login Button (Neon Mint)
+            // Login Button (with Loading Spinner)
             Button(
-                onClick = onLoginSuccess,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp),
+                onClick = {
+                    isLoading = true
+                    authViewModel.signIn(email, password,
+                        onSuccess = {
+                            isLoading = false
+                            onLoginSuccess()
+                        },
+                        onError = { errorMsg ->
+                            isLoading = false
+                            Toast.makeText(context, "Error: $errorMsg", Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                },
+                enabled = !isLoading, // Disable button while loading
+                modifier = Modifier.fillMaxWidth().height(50.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = accentColor),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text(
-                    text = "SIGN IN",
-                    color = Color(0xFF0F2027), // Dark text on bright button
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                if (isLoading) {
+                    CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(24.dp))
+                } else {
+                    Text("SIGN IN", color = Color(0xFF0F2027), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Navigation Text
             Row(modifier = Modifier.clickable { onNavigateToSignUp() }) {
                 Text("New here? ", color = Color.White.copy(alpha = 0.7f))
                 Text("Start Journey", color = accentColor, fontWeight = FontWeight.Bold)
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Google Button
-            OutlinedButton(
-                onClick = onLoginSuccess,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp),
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-            ) {
-                Text("Continue with Google", fontWeight = FontWeight.Medium)
             }
         }
     }
