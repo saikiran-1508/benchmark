@@ -42,15 +42,16 @@ import java.util.*
 
 @Composable
 fun DashboardScreen(viewModel: TaskViewModel = viewModel()) {
+    // 1. DATA & CONTEXT (These were missing before)
     val allTasks by viewModel.tasks.collectAsState(initial = emptyList())
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    // 1. STATE: Track Selected Date & Anchor (Today)
+    // 2. STATE: Selected Date & Anchor (Today)
     var selectedDate by remember { mutableStateOf(Calendar.getInstance()) }
     val today = remember { Calendar.getInstance() }
 
-    // 2. SCROLL STATE: We hoist this so we can scroll programmatically
+    // 3. SCROLL STATE: Hoisted to allow auto-scrolling
     val dayListState = rememberLazyListState()
 
     // Formatter Helpers
@@ -58,23 +59,23 @@ fun DashboardScreen(viewModel: TaskViewModel = viewModel()) {
     val subtitleFormatter = SimpleDateFormat("EEEE, MMM d", Locale.getDefault()) // "Friday, Dec 12"
     val dbFormatter = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) // "2025-12-12"
 
-    // Filter Tasks
+    // Filter Tasks by Selected Date
     val selectedDateString = dbFormatter.format(selectedDate.time)
     val todaysTasks = allTasks.filter { it.day == selectedDateString }
 
     var showAddDialog by remember { mutableStateOf(false) }
 
-    // Date Picker Logic
+    // Calendar Picker Logic
     val datePickerDialog = DatePickerDialog(
         context,
         { _: DatePicker, year: Int, month: Int, dayOfMonth: Int ->
             val newDate = Calendar.getInstance()
             newDate.set(year, month, dayOfMonth)
 
-            // 1. Highlight the new date
+            // A. Highlight the new date
             selectedDate = newDate
 
-            // 2. Auto-scroll the horizontal list to the new date
+            // B. Auto-scroll list to that date
             val diff = getDaysDifference(today, newDate)
             if (diff >= 0) {
                 coroutineScope.launch {
@@ -110,14 +111,14 @@ fun DashboardScreen(viewModel: TaskViewModel = viewModel()) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    // Main Title: Month & Year of SELECTED DATE
+                    // Title: Month & Year
                     Text(
                         text = headerFormatter.format(selectedDate.time),
                         color = Color.White,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    // Subtitle: Specific Day (or "Today")
+                    // Subtitle: "Today" or specific date
                     Text(
                         text = if (isSameDay(selectedDate, today)) "Today" else subtitleFormatter.format(selectedDate.time),
                         color = SecondaryText,
@@ -165,12 +166,13 @@ fun DashboardScreen(viewModel: TaskViewModel = viewModel()) {
             }
         }
 
-        // --- ADD DIALOG ---
+        // --- SMART ADD DIALOG (With Clock) ---
         if (showAddDialog) {
             SmartAddDialog(
                 onDismiss = { showAddDialog = false },
                 onAdd = { name, duration, startTime ->
-                    viewModel.addTask(name, duration, startTime, selectedDateString)
+                    // IMPORTANT: Pass 'context' here so alarms can be set
+                    viewModel.addTask(context, name, duration, startTime, selectedDateString)
                     showAddDialog = false
                 }
             )
@@ -178,7 +180,7 @@ fun DashboardScreen(viewModel: TaskViewModel = viewModel()) {
     }
 }
 
-// --- COMPONENT: Infinite Day Selector with Snapping ---
+// --- COMPONENT: Infinite Day Selector ---
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DaySelector(
@@ -206,7 +208,7 @@ fun DaySelector(
 
             val isSelected = isSameDay(date, selectedDate)
 
-            // Logic: Mark Sundays as Red
+            // Logic: Red Sundays
             val isSunday = date.get(Calendar.DAY_OF_WEEK) == Calendar.SUNDAY
             val dayNameColor = if (isSunday) Color(0xFFFF5252) else SecondaryText
 
@@ -223,15 +225,13 @@ fun DaySelector(
                     .padding(vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Day Name (M, T, W...)
                 Text(
                     text = dayFormatter.format(date.time).take(1),
-                    color = if (isSelected) Color.Black else dayNameColor, // Keep selected black
+                    color = if (isSelected) Color.Black else dayNameColor,
                     fontSize = 12.sp,
                     fontWeight = fontWeight
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                // Date Number (12)
                 Text(
                     text = dateFormatter.format(date.time),
                     color = if (isSelected) Color.Black else Color.White,
@@ -243,21 +243,129 @@ fun DaySelector(
     }
 }
 
+// --- COMPONENT: Add Task Dialog with CLOCK PICKER ---
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SmartAddDialog(onDismiss: () -> Unit, onAdd: (String, String, String) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var duration by remember { mutableStateOf("") }
+
+    // Time Picker State
+    var startTime by remember { mutableStateOf("") }
+    var showTimePicker by remember { mutableStateOf(false) }
+    val timePickerState = rememberTimePickerState(is24Hour = false)
+
+    var aiSuggestion by remember { mutableStateOf("") }
+    var isDurationFocused by remember { mutableStateOf(false) }
+
+    // AI Simulation
+    LaunchedEffect(name) {
+        if (name.length > 3) {
+            aiSuggestion = "Thinking..."
+            delay(1000)
+            aiSuggestion = "AI Est: 45m"
+        } else {
+            aiSuggestion = ""
+        }
+    }
+
+    // CLOCK POPUP
+    if (showTimePicker) {
+        AlertDialog(
+            onDismissRequest = { showTimePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    val cal = Calendar.getInstance()
+                    cal.set(Calendar.HOUR_OF_DAY, timePickerState.hour)
+                    cal.set(Calendar.MINUTE, timePickerState.minute)
+                    val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
+                    startTime = sdf.format(cal.time)
+                    showTimePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTimePicker = false }) { Text("Cancel") }
+            },
+            text = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Select Start Time", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
+                    TimePicker(state = timePickerState)
+                }
+            }
+        )
+    }
+
+    // MAIN DIALOG
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New Benchmark Task") },
+        text = {
+            Column {
+                // Task Name
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Task Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Start Time (Clickable Box)
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = startTime,
+                        onValueChange = { },
+                        label = { Text("Start Time") },
+                        singleLine = true,
+                        readOnly = true, // No typing
+                        trailingIcon = { Icon(Icons.Default.DateRange, "Select Time") },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = false, // Keep it visually consistent
+                        colors = OutlinedTextFieldDefaults.colors(
+                            disabledTextColor = Color.Black,
+                            disabledBorderColor = Color.Gray,
+                            disabledLabelColor = Color.Gray,
+                            disabledTrailingIconColor = Color.Black
+                        )
+                    )
+                    // Transparent overlay to capture click
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .clickable { showTimePicker = true }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Duration
+                OutlinedTextField(
+                    value = duration,
+                    onValueChange = { duration = it },
+                    label = { Text("Duration (e.g., 30m)") },
+                    singleLine = true,
+                    placeholder = {
+                        if (!isDurationFocused && duration.isEmpty())
+                            Text(text = aiSuggestion, color = Color.Gray)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { isDurationFocused = it.isFocused }
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onAdd(name, duration, startTime) },
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Black)
+            ) { Text("Add", color = Color.White) }
+        }
+    )
+}
+
 // --- HELPER FUNCTIONS ---
-
-fun isSameDay(cal1: Calendar, cal2: Calendar): Boolean {
-    return cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR) &&
-            cal1.get(Calendar.DAY_OF_YEAR) == cal2.get(Calendar.DAY_OF_YEAR)
-}
-
-fun getDaysDifference(start: Calendar, end: Calendar): Int {
-    val startMillis = start.timeInMillis
-    val endMillis = end.timeInMillis
-    val diff = endMillis - startMillis
-    return (diff / (24 * 60 * 60 * 1000)).toInt()
-}
-
-// --- UI COMPONENTS (Buttons & Dialogs) ---
 
 @Composable
 fun AddTaskButton(onClick: () -> Unit) {
@@ -279,45 +387,14 @@ fun AddTaskButton(onClick: () -> Unit) {
     }
 }
 
-@Composable
-fun SmartAddDialog(onDismiss: () -> Unit, onAdd: (String, String, String) -> Unit) {
-    var name by remember { mutableStateOf("") }
-    var duration by remember { mutableStateOf("") }
-    var startTime by remember { mutableStateOf("") }
-    var aiSuggestion by remember { mutableStateOf("") }
-    var isDurationFocused by remember { mutableStateOf(false) }
+fun isSameDay(cal1: Calendar, cal2: Calendar): Boolean {
+    return cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR) &&
+            cal1.get(Calendar.DAY_OF_YEAR) == cal2.get(Calendar.DAY_OF_YEAR)
+}
 
-    LaunchedEffect(name) {
-        if (name.length > 3) {
-            aiSuggestion = "Thinking..."
-            delay(1000)
-            aiSuggestion = "AI Est: 45m"
-        } else {
-            aiSuggestion = ""
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("New Benchmark Task") },
-        text = {
-            Column {
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Task Name") }, singleLine = true)
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(value = startTime, onValueChange = { startTime = it }, label = { Text("Start Time") }, singleLine = true)
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = duration, onValueChange = { duration = it }, label = { Text("Duration") }, singleLine = true,
-                    placeholder = { if (!isDurationFocused && duration.isEmpty()) Text(text = aiSuggestion, color = Color.Gray) },
-                    modifier = Modifier.onFocusChanged { isDurationFocused = it.isFocused }
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onAdd(name, duration, startTime) },
-                colors = ButtonDefaults.buttonColors(containerColor = Color.White)
-            ) { Text("Add", color = Color.Black) }
-        }
-    )
+fun getDaysDifference(start: Calendar, end: Calendar): Int {
+    val startMillis = start.timeInMillis
+    val endMillis = end.timeInMillis
+    val diff = endMillis - startMillis
+    return (diff / (24 * 60 * 60 * 1000)).toInt()
 }

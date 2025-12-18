@@ -1,5 +1,9 @@
 package com.example.benchmark
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -13,8 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.lifecycle.viewmodel.compose.viewModel // Import this!
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -30,8 +33,28 @@ import com.example.benchmark.ui.theme.BgColor
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // 1. CREATE NOTIFICATION CHANNEL (Vital for Reminders)
+        createNotificationChannel()
+
         setContent {
             MainApp()
+        }
+    }
+
+    // This creates the "Pipe" for notifications to travel through
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val name = "Task Reminders"
+            val descriptionText = "Notifications for scheduled tasks"
+            val importance = NotificationManager.IMPORTANCE_HIGH
+            val channel = NotificationChannel("benchmark_reminders", name, importance).apply {
+                description = descriptionText
+            }
+            // Register the channel with the system
+            val notificationManager: NotificationManager =
+                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.createNotificationChannel(channel)
         }
     }
 }
@@ -39,11 +62,9 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainApp() {
     val navController = rememberNavController()
-
-    // 1. Initialize the Auth Logic Engine
     val authViewModel: AuthViewModel = viewModel()
 
-    // 2. Decide where to start: If logged in -> Dashboard. If not -> Login.
+    // Smart Start: Skip login if user is already saved
     val startRoute = if (authViewModel.isUserLoggedIn()) Screen.Dashboard.route else Screen.Login.route
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -52,73 +73,60 @@ fun MainApp() {
     Scaffold(
         containerColor = BgColor,
         bottomBar = {
+            // Hide bottom bar on Login/Signup screens
             if (currentRoute != Screen.Login.route && currentRoute != Screen.SignUp.route) {
                 BottomNavBar(navController = navController)
             }
         }
     ) { innerPadding ->
-
         NavHost(
             navController = navController,
-            startDestination = startRoute, // Use the smart start route
+            startDestination = startRoute,
             modifier = Modifier.padding(innerPadding)
         ) {
-
-            // 1. Sign In Screen
+            // 1. Sign In
             composable(Screen.Login.route) {
                 SignInScreen(
-                    authViewModel = authViewModel, // PASS THE VIEWMODEL HERE
+                    authViewModel = authViewModel,
                     onLoginSuccess = {
                         navController.navigate(Screen.Dashboard.route) {
                             popUpTo(Screen.Login.route) { inclusive = true }
                         }
                     },
-                    onNavigateToSignUp = {
-                        navController.navigate(Screen.SignUp.route)
-                    }
+                    onNavigateToSignUp = { navController.navigate(Screen.SignUp.route) }
                 )
             }
 
-            // 2. Sign Up Screen
+            // 2. Sign Up
             composable(Screen.SignUp.route) {
                 SignUpScreen(
-                    authViewModel = authViewModel, // PASS THE VIEWMODEL HERE
+                    authViewModel = authViewModel,
                     onSignUpSuccess = {
                         navController.navigate(Screen.Dashboard.route) {
                             popUpTo(Screen.Login.route) { inclusive = true }
                         }
                     },
-                    onNavigateToLogin = {
-                        navController.popBackStack()
-                    }
+                    onNavigateToLogin = { navController.popBackStack() }
                 )
             }
 
-            // 3. Dashboard
+            // 3. Dashboard (Home)
             composable(Screen.Dashboard.route) {
                 DashboardScreen()
             }
 
-            // 4. Today's Tasks
+            // 4. Daily Focus
             composable(Screen.DailyFocus.route) {
                 DailyFocusScreen()
             }
 
-            // 5. Profile (With Logout Button for Testing)
+            // 5. Profile
             composable(Screen.Profile.route) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Button(onClick = {
-                        // Log out and go back to Login screen
                         authViewModel.signOut()
-                        navController.navigate(Screen.Login.route) {
-                            popUpTo(0) // Clear all history
-                        }
-                    }) {
-                        Text("Log Out")
-                    }
+                        navController.navigate(Screen.Login.route) { popUpTo(0) }
+                    }) { Text("Log Out") }
                 }
             }
         }
