@@ -26,7 +26,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -39,7 +38,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.benchmark.Task
 import com.example.benchmark.TaskViewModel
-import com.example.benchmark.ui.components.VoiceManager
+// ✅ USING GEMINI MANAGER (FREE)
+import com.example.benchmark.ui.components.GeminiManager
 import com.example.benchmark.ui.components.VoiceStatus
 import com.example.benchmark.ui.theme.BgColor
 import com.example.benchmark.ui.theme.DarkAccent
@@ -55,11 +55,11 @@ fun TimetableScreen(viewModel: TaskViewModel = viewModel()) {
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
 
-    // --- VOICE MANAGER ---
-    val voiceManager = remember { VoiceManager(context, viewModel) }
+    // --- GEMINI MANAGER ---
+    val voiceManager = remember { GeminiManager(context, viewModel) }
     val voiceStatus by voiceManager.status.collectAsState()
 
-    // --- PERMISSION ---
+    // --- PERMISSION LAUNCHER ---
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { isGranted ->
@@ -67,7 +67,7 @@ fun TimetableScreen(viewModel: TaskViewModel = viewModel()) {
         }
     )
 
-    // --- STATE ---
+    // --- STATE VARIABLES ---
     var wakeUpHour by remember { mutableIntStateOf(6) }
     var sleepHour by remember { mutableIntStateOf(22) }
     var showSettings by remember { mutableStateOf(false) }
@@ -75,6 +75,7 @@ fun TimetableScreen(viewModel: TaskViewModel = viewModel()) {
     var showAddDialog by remember { mutableStateOf(false) }
     var clickedHour by remember { mutableIntStateOf(0) }
 
+    // --- GRID CONSTANTS ---
     val hourHeight = 80.dp
     val startPadding = 80.dp
     val dbFormatter = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
@@ -86,7 +87,7 @@ fun TimetableScreen(viewModel: TaskViewModel = viewModel()) {
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         floatingActionButton = {
             if (copiedTask == null) {
-                // --- THE NEW PULSING BUTTON ---
+                // --- PULSING BUTTON (CONNECTED TO GEMINI) ---
                 PulsingMicButton(
                     status = voiceStatus,
                     onClick = {
@@ -125,11 +126,12 @@ fun TimetableScreen(viewModel: TaskViewModel = viewModel()) {
                     Button(onClick = { showSettings = true }, colors = ButtonDefaults.buttonColors(containerColor = DarkAccent)) { Text("Settings", color = Color.Black) }
                 }
 
-                // GRID
+                // SCROLLABLE GRID
                 Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                     for (hour in wakeUpHour..sleepHour) {
                         Box(modifier = Modifier.fillMaxWidth().height(hourHeight)) {
-                            // TIME (COPY)
+
+                            // 1. TIME SECTION (LEFT) - COPY TRIGGER
                             TimeLabelSection(
                                 hour = hour, width = startPadding,
                                 onLongClick = {
@@ -143,22 +145,26 @@ fun TimetableScreen(viewModel: TaskViewModel = viewModel()) {
                                 }
                             )
 
-                            // GRID (PASTE/ADD)
+                            // 2. GRID AREA (RIGHT) - PASTE/ADD TRIGGER
                             Box(modifier = Modifier
                                 .fillMaxSize()
                                 .padding(start = startPadding)
                                 .clickable {
                                     if (copiedTask != null) {
+                                        // Paste Logic
                                         val newTime = String.format("%d:00 %s", if(hour > 12) hour-12 else hour, if(hour>=12)"PM" else "AM")
                                         viewModel.addTask(context, copiedTask!!.name, copiedTask!!.duration, newTime, todayString, null)
                                         coroutineScope.launch { snackbarHostState.showSnackbar("Pasted task") }
                                     } else {
+                                        // Add Logic
                                         clickedHour = hour
                                         showAddDialog = true
                                     }
                                 }
                             ) {
                                 Divider(color = Color.DarkGray.copy(alpha = 0.3f), modifier = Modifier.align(Alignment.TopStart))
+
+                                // Render Tasks
                                 todaysTasks.forEach { task ->
                                     if (getHourFromTime(task.startTime) == hour) {
                                         val offset = (getMinutesFromTime(task.startTime).toFloat() / 60f) * 80
@@ -173,16 +179,16 @@ fun TimetableScreen(viewModel: TaskViewModel = viewModel()) {
                 }
             }
 
-            // AI OVERLAY TEXT
+            // AI OVERLAY (UPDATED TEXTS)
             AnimatedVisibility(
-                visible = voiceStatus != VoiceStatus.IDLE && voiceStatus != VoiceStatus.ERROR,
+                visible = voiceStatus != VoiceStatus.IDLE,
                 enter = fadeIn(), exit = fadeOut(),
                 modifier = Modifier.align(Alignment.Center)
             ) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.8f)), contentAlignment = Alignment.Center) {
                     Text(
                         text = when(voiceStatus) {
-                            VoiceStatus.SPEAKING -> "AI Speaking..."
+                            VoiceStatus.SPEAKING -> "Gemini Speaking..."
                             VoiceStatus.LISTENING -> "Listening..."
                             VoiceStatus.PROCESSING -> "Thinking..."
                             else -> ""
@@ -193,6 +199,7 @@ fun TimetableScreen(viewModel: TaskViewModel = viewModel()) {
             }
         }
 
+        // --- DIALOGS ---
         if (showAddDialog) {
             TimetableAddDialog(
                 initialTime = String.format("%d:00 %s", if(clickedHour > 12) clickedHour - 12 else clickedHour, if(clickedHour >= 12) "PM" else "AM"),
@@ -222,44 +229,35 @@ fun TimetableScreen(viewModel: TaskViewModel = viewModel()) {
     }
 }
 
-// --- NEW UI: PULSING MIC BUTTON ---
+// --- COMPONENTS ---
+
 @Composable
 fun PulsingMicButton(status: VoiceStatus, onClick: () -> Unit) {
-    // Infinite Pulse Animation
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val scale by infiniteTransition.animateFloat(
         initialValue = 1f,
-        targetValue = if (status == VoiceStatus.LISTENING) 1.25f else 1f, // Pulse only when listening
+        targetValue = if (status == VoiceStatus.LISTENING) 1.25f else 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(800),
             repeatMode = RepeatMode.Reverse
         ), label = "scale"
     )
 
-    // Gradient Border
-    val borderBrush = Brush.linearGradient(
-        colors = listOf(Color.Cyan, Color.Magenta)
-    )
+    val borderBrush = Brush.linearGradient(colors = listOf(Color.Cyan, Color.Magenta))
 
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier.size(80.dp) // Container size to allow pulsing
-    ) {
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(80.dp)) {
         FloatingActionButton(
             onClick = onClick,
             containerColor = if (status == VoiceStatus.IDLE) Color.Black else Color.DarkGray,
             contentColor = if (status == VoiceStatus.LISTENING) Color.Red else Color.Cyan,
             shape = CircleShape,
-            modifier = Modifier
-                .size(70.dp)
-                .scale(scale) // Apply Pulse
-                .border(3.dp, borderBrush, CircleShape) // Apply Gradient Border
+            modifier = Modifier.size(70.dp).scale(scale).border(3.dp, borderBrush, CircleShape)
         ) {
             Icon(
                 imageVector = when (status) {
-                    VoiceStatus.LISTENING -> Icons.Default.Mic // Show Mic when listening
-                    VoiceStatus.SPEAKING -> Icons.Default.VolumeUp // Show Speaker when AI talks
-                    VoiceStatus.PROCESSING -> Icons.Default.Stop // Show Stop/Think when processing
+                    VoiceStatus.LISTENING -> Icons.Default.Mic
+                    VoiceStatus.SPEAKING -> Icons.Default.VolumeUp
+                    VoiceStatus.PROCESSING -> Icons.Default.Stop
                     else -> Icons.Default.Mic
                 },
                 contentDescription = "Voice AI",
@@ -269,14 +267,10 @@ fun PulsingMicButton(status: VoiceStatus, onClick: () -> Unit) {
     }
 }
 
-// --- EXISTING COMPONENTS (Unchanged) ---
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TimeLabelSection(hour: Int, width: Dp, onLongClick: () -> Unit) {
-    Box(
-        modifier = Modifier.width(width).fillMaxHeight().combinedClickable(onClick = {}, onLongClick = onLongClick),
-        contentAlignment = Alignment.CenterStart
-    ) {
+    Box(modifier = Modifier.width(width).fillMaxHeight().combinedClickable(onClick = {}, onLongClick = onLongClick), contentAlignment = Alignment.CenterStart) {
         Text(text = String.format("%02d:00", hour), color = SecondaryText, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp))
     }
 }
@@ -284,11 +278,7 @@ fun TimeLabelSection(hour: Int, width: Dp, onLongClick: () -> Unit) {
 @Composable
 fun TaskBlock(task: Task, topOffset: Dp, height: Dp) {
     val endLabel = calculateEndTime(task.startTime, task.duration)
-    Card(
-        colors = CardDefaults.cardColors(containerColor = DarkAccent.copy(alpha = 0.85f)),
-        shape = RoundedCornerShape(8.dp),
-        modifier = Modifier.padding(start = 8.dp, end = 16.dp).offset(y = topOffset).fillMaxWidth().height(height).border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-    ) {
+    Card(colors = CardDefaults.cardColors(containerColor = DarkAccent.copy(alpha = 0.85f)), shape = RoundedCornerShape(8.dp), modifier = Modifier.padding(start = 8.dp, end = 16.dp).offset(y = topOffset).fillMaxWidth().height(height).border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(8.dp))) {
         Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.Center) {
             Text(task.name, color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             Text("${task.startTime} - $endLabel", color = Color.DarkGray, fontSize = 11.sp)
@@ -308,7 +298,6 @@ fun calculateEndTime(start: String, duration: String): String {
     } catch (e: Exception) { "" }
 }
 
-// Helpers
 fun getHourFromTime(timeStr: String): Int {
     return try {
         val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())

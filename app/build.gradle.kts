@@ -75,4 +75,6 @@ dependencies {
 
     // Keep standard Kotlin coroutines (you likely already have this)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("androidx.lifecycle:lifecycle-process:2.8.4")
+    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
 }
