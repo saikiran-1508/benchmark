@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -20,11 +21,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -67,16 +71,12 @@ fun TimetableScreen(viewModel: TaskViewModel = viewModel()) {
     var wakeUpHour by remember { mutableIntStateOf(6) }
     var sleepHour by remember { mutableIntStateOf(22) }
     var showSettings by remember { mutableStateOf(false) }
-
-    // Copy/Paste State
     var copiedTask by remember { mutableStateOf<Task?>(null) }
-
-    // Dialog State
     var showAddDialog by remember { mutableStateOf(false) }
     var clickedHour by remember { mutableIntStateOf(0) }
 
     val hourHeight = 80.dp
-    val startPadding = 80.dp // Wider to allow easy pressing on time label
+    val startPadding = 80.dp
     val dbFormatter = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
     val todayString = dbFormatter.format(Calendar.getInstance().time)
     val todaysTasks = allTasks.filter { it.day == todayString }
@@ -86,7 +86,9 @@ fun TimetableScreen(viewModel: TaskViewModel = viewModel()) {
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         floatingActionButton = {
             if (copiedTask == null) {
-                FloatingActionButton(
+                // --- THE NEW PULSING BUTTON ---
+                PulsingMicButton(
+                    status = voiceStatus,
                     onClick = {
                         if (voiceStatus == VoiceStatus.IDLE) {
                             if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
@@ -97,14 +99,8 @@ fun TimetableScreen(viewModel: TaskViewModel = viewModel()) {
                         } else {
                             voiceManager.stopConversation()
                         }
-                    },
-                    containerColor = if(voiceStatus == VoiceStatus.IDLE) Color.Black else Color.Red,
-                    contentColor = Color.White,
-                    shape = CircleShape,
-                    modifier = Modifier.size(70.dp)
-                ) {
-                    Icon(imageVector = if (voiceStatus == VoiceStatus.IDLE) Icons.Default.Mic else Icons.Default.Stop, contentDescription = "Voice")
-                }
+                    }
+                )
             } else {
                 ExtendedFloatingActionButton(
                     onClick = { copiedTask = null },
@@ -121,7 +117,7 @@ fun TimetableScreen(viewModel: TaskViewModel = viewModel()) {
                     Column {
                         Text("Daily Grid", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                         Text(
-                            text = if (copiedTask != null) "Tap a slot to paste '${copiedTask?.name}'" else "Long press Time (Left) to Copy",
+                            text = if (copiedTask != null) "Tap slot to paste" else "Long press Time (Left) to Copy",
                             color = if (copiedTask != null) Color.Green else SecondaryText,
                             fontSize = 14.sp
                         )
@@ -132,48 +128,37 @@ fun TimetableScreen(viewModel: TaskViewModel = viewModel()) {
                 // GRID
                 Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                     for (hour in wakeUpHour..sleepHour) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(hourHeight)
-                        ) {
-                            // --- 1. TIME SECTION (LEFT) - COPY TRIGGER ---
+                        Box(modifier = Modifier.fillMaxWidth().height(hourHeight)) {
+                            // TIME (COPY)
                             TimeLabelSection(
-                                hour = hour,
-                                width = startPadding,
+                                hour = hour, width = startPadding,
                                 onLongClick = {
-                                    // Logic: Find the task at this hour to copy it
                                     val taskAtHour = todaysTasks.find { getHourFromTime(it.startTime) == hour }
                                     if (taskAtHour != null) {
                                         copiedTask = taskAtHour
                                         coroutineScope.launch { snackbarHostState.showSnackbar("Copied '${taskAtHour.name}'") }
                                     } else {
-                                        coroutineScope.launch { snackbarHostState.showSnackbar("No task at $hour:00 to copy") }
+                                        coroutineScope.launch { snackbarHostState.showSnackbar("No task to copy") }
                                     }
                                 }
                             )
 
-                            // --- 2. GRID AREA (RIGHT) - CLICK TO PASTE/ADD ---
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(start = startPadding)
-                                    .clickable {
-                                        if (copiedTask != null) {
-                                            // Paste Logic
-                                            val newTime = String.format("%d:00 %s", if(hour > 12) hour-12 else hour, if(hour>=12)"PM" else "AM")
-                                            viewModel.addTask(context, copiedTask!!.name, copiedTask!!.duration, newTime, todayString, null)
-                                            coroutineScope.launch { snackbarHostState.showSnackbar("Pasted at $newTime") }
-                                        } else {
-                                            // Add Logic
-                                            clickedHour = hour
-                                            showAddDialog = true
-                                        }
+                            // GRID (PASTE/ADD)
+                            Box(modifier = Modifier
+                                .fillMaxSize()
+                                .padding(start = startPadding)
+                                .clickable {
+                                    if (copiedTask != null) {
+                                        val newTime = String.format("%d:00 %s", if(hour > 12) hour-12 else hour, if(hour>=12)"PM" else "AM")
+                                        viewModel.addTask(context, copiedTask!!.name, copiedTask!!.duration, newTime, todayString, null)
+                                        coroutineScope.launch { snackbarHostState.showSnackbar("Pasted task") }
+                                    } else {
+                                        clickedHour = hour
+                                        showAddDialog = true
                                     }
+                                }
                             ) {
                                 Divider(color = Color.DarkGray.copy(alpha = 0.3f), modifier = Modifier.align(Alignment.TopStart))
-
-                                // Render Tasks
                                 todaysTasks.forEach { task ->
                                     if (getHourFromTime(task.startTime) == hour) {
                                         val offset = (getMinutesFromTime(task.startTime).toFloat() / 60f) * 80
@@ -188,13 +173,13 @@ fun TimetableScreen(viewModel: TaskViewModel = viewModel()) {
                 }
             }
 
-            // AI OVERLAY
+            // AI OVERLAY TEXT
             AnimatedVisibility(
                 visible = voiceStatus != VoiceStatus.IDLE && voiceStatus != VoiceStatus.ERROR,
                 enter = fadeIn(), exit = fadeOut(),
                 modifier = Modifier.align(Alignment.Center)
             ) {
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.9f)), contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.8f)), contentAlignment = Alignment.Center) {
                     Text(
                         text = when(voiceStatus) {
                             VoiceStatus.SPEAKING -> "AI Speaking..."
@@ -208,7 +193,6 @@ fun TimetableScreen(viewModel: TaskViewModel = viewModel()) {
             }
         }
 
-        // DIALOGS
         if (showAddDialog) {
             TimetableAddDialog(
                 initialTime = String.format("%d:00 %s", if(clickedHour > 12) clickedHour - 12 else clickedHour, if(clickedHour >= 12) "PM" else "AM"),
@@ -238,54 +222,80 @@ fun TimetableScreen(viewModel: TaskViewModel = viewModel()) {
     }
 }
 
-// --- COMPONENT: TIME LABEL (With Copy) ---
+// --- NEW UI: PULSING MIC BUTTON ---
+@Composable
+fun PulsingMicButton(status: VoiceStatus, onClick: () -> Unit) {
+    // Infinite Pulse Animation
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = if (status == VoiceStatus.LISTENING) 1.25f else 1f, // Pulse only when listening
+        animationSpec = infiniteRepeatable(
+            animation = tween(800),
+            repeatMode = RepeatMode.Reverse
+        ), label = "scale"
+    )
+
+    // Gradient Border
+    val borderBrush = Brush.linearGradient(
+        colors = listOf(Color.Cyan, Color.Magenta)
+    )
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.size(80.dp) // Container size to allow pulsing
+    ) {
+        FloatingActionButton(
+            onClick = onClick,
+            containerColor = if (status == VoiceStatus.IDLE) Color.Black else Color.DarkGray,
+            contentColor = if (status == VoiceStatus.LISTENING) Color.Red else Color.Cyan,
+            shape = CircleShape,
+            modifier = Modifier
+                .size(70.dp)
+                .scale(scale) // Apply Pulse
+                .border(3.dp, borderBrush, CircleShape) // Apply Gradient Border
+        ) {
+            Icon(
+                imageVector = when (status) {
+                    VoiceStatus.LISTENING -> Icons.Default.Mic // Show Mic when listening
+                    VoiceStatus.SPEAKING -> Icons.Default.VolumeUp // Show Speaker when AI talks
+                    VoiceStatus.PROCESSING -> Icons.Default.Stop // Show Stop/Think when processing
+                    else -> Icons.Default.Mic
+                },
+                contentDescription = "Voice AI",
+                modifier = Modifier.size(32.dp)
+            )
+        }
+    }
+}
+
+// --- EXISTING COMPONENTS (Unchanged) ---
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TimeLabelSection(hour: Int, width: Dp, onLongClick: () -> Unit) {
     Box(
-        modifier = Modifier
-            .width(width)
-            .fillMaxHeight()
-            .combinedClickable(
-                onClick = {},
-                onLongClick = onLongClick // TRIGGER COPY
-            ),
+        modifier = Modifier.width(width).fillMaxHeight().combinedClickable(onClick = {}, onLongClick = onLongClick),
         contentAlignment = Alignment.CenterStart
     ) {
-        Text(
-            text = String.format("%02d:00", hour),
-            color = SecondaryText,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(start = 16.dp)
-        )
+        Text(text = String.format("%02d:00", hour), color = SecondaryText, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp))
     }
 }
 
-// --- COMPONENT: TASK BLOCK (Merged Time) ---
 @Composable
 fun TaskBlock(task: Task, topOffset: Dp, height: Dp) {
-    // Calculate End Time logic
     val endLabel = calculateEndTime(task.startTime, task.duration)
-
     Card(
         colors = CardDefaults.cardColors(containerColor = DarkAccent.copy(alpha = 0.85f)),
         shape = RoundedCornerShape(8.dp),
-        modifier = Modifier
-            .padding(start = 8.dp, end = 16.dp)
-            .offset(y = topOffset)
-            .fillMaxWidth()
-            .height(height)
-            .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+        modifier = Modifier.padding(start = 8.dp, end = 16.dp).offset(y = topOffset).fillMaxWidth().height(height).border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
     ) {
         Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.Center) {
             Text(task.name, color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            // SHOW RANGE: e.g. "3:00 PM - 5:00 PM"
             Text("${task.startTime} - $endLabel", color = Color.DarkGray, fontSize = 11.sp)
         }
     }
 }
 
-// --- HELPERS ---
 fun calculateEndTime(start: String, duration: String): String {
     return try {
         val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
@@ -298,6 +308,7 @@ fun calculateEndTime(start: String, duration: String): String {
     } catch (e: Exception) { "" }
 }
 
+// Helpers
 fun getHourFromTime(timeStr: String): Int {
     return try {
         val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
@@ -306,7 +317,6 @@ fun getHourFromTime(timeStr: String): Int {
         cal.get(Calendar.HOUR_OF_DAY)
     } catch (e: Exception) { 0 }
 }
-
 fun getMinutesFromTime(timeStr: String): Int {
     return try {
         val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
@@ -315,35 +325,20 @@ fun getMinutesFromTime(timeStr: String): Int {
         cal.get(Calendar.MINUTE)
     } catch (e: Exception) { 0 }
 }
-
 fun parseDurationToHeight(duration: String, hourHeight: Dp): Dp {
     val numeric = duration.filter { it.isDigit() }.toIntOrNull() ?: 60
-    return if (duration.contains("m")) {
-        (numeric.toFloat() / 60f * hourHeight.value).dp
-    } else {
-        (numeric.toFloat() * hourHeight.value).dp
-    }
+    return if (duration.contains("m")) (numeric.toFloat() / 60f * hourHeight.value).dp else (numeric.toFloat() * hourHeight.value).dp
 }
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TimetableAddDialog(initialTime: String, onDismiss: () -> Unit, onAdd: (String, String, String) -> Unit) {
     var name by remember { mutableStateOf("") }
     var duration by remember { mutableStateOf("") }
     var startTime by remember { mutableStateOf(initialTime) }
-
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Add Task") },
-        text = {
-            Column {
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Task Name") }, singleLine = true)
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(value = startTime, onValueChange = { startTime = it }, label = { Text("Time") }, singleLine = true)
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(value = duration, onValueChange = { duration = it }, label = { Text("Duration (e.g. 1h)") }, singleLine = true)
-            }
-        },
+        text = { Column { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Task Name") }, singleLine = true); Spacer(modifier = Modifier.height(8.dp)); OutlinedTextField(value = startTime, onValueChange = { startTime = it }, label = { Text("Time") }, singleLine = true); Spacer(modifier = Modifier.height(8.dp)); OutlinedTextField(value = duration, onValueChange = { duration = it }, label = { Text("Duration (e.g. 1h)") }, singleLine = true) } },
         confirmButton = { Button(onClick = { onAdd(name, duration, startTime) }) { Text("Add") } }
     )
 }
