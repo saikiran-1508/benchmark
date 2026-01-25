@@ -69,4 +69,10 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.android.gms:play-services-auth:21.2.0")
     implementation(platform("com.google.firebase:firebase-bom:34.6.0"))
+    implementation("com.squareup.okhttp3:okhttp:4.12.0") // Standard networking
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
+
+    // Keep standard Kotlin coroutines (you likely already have this)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 }

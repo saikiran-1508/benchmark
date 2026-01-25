@@ -28,13 +28,13 @@ import com.example.benchmark.ui.screens.DailyFocusScreen
 import com.example.benchmark.ui.screens.DashboardScreen
 import com.example.benchmark.ui.screens.SignInScreen
 import com.example.benchmark.ui.screens.SignUpScreen
+import com.example.benchmark.ui.screens.TimetableScreen // <--- Make sure this is imported
 import com.example.benchmark.ui.theme.BgColor
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 1. CREATE NOTIFICATION CHANNEL (Vital for Reminders)
         createNotificationChannel()
 
         setContent {
@@ -42,7 +42,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // This creates the "Pipe" for notifications to travel through
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "Task Reminders"
@@ -51,7 +50,6 @@ class MainActivity : ComponentActivity() {
             val channel = NotificationChannel("benchmark_reminders", name, importance).apply {
                 description = descriptionText
             }
-            // Register the channel with the system
             val notificationManager: NotificationManager =
                 getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
@@ -64,7 +62,7 @@ fun MainApp() {
     val navController = rememberNavController()
     val authViewModel: AuthViewModel = viewModel()
 
-    // Smart Start: Skip login if user is already saved
+    // Skip login if user is already authenticated
     val startRoute = if (authViewModel.isUserLoggedIn()) Screen.Dashboard.route else Screen.Login.route
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -84,7 +82,7 @@ fun MainApp() {
             startDestination = startRoute,
             modifier = Modifier.padding(innerPadding)
         ) {
-            // 1. Sign In
+            // 1. Auth Screens
             composable(Screen.Login.route) {
                 SignInScreen(
                     authViewModel = authViewModel,
@@ -97,7 +95,6 @@ fun MainApp() {
                 )
             }
 
-            // 2. Sign Up
             composable(Screen.SignUp.route) {
                 SignUpScreen(
                     authViewModel = authViewModel,
@@ -110,9 +107,14 @@ fun MainApp() {
                 )
             }
 
-            // 3. Dashboard (Home)
+            // 2. Dashboard
             composable(Screen.Dashboard.route) {
                 DashboardScreen()
+            }
+
+            // 3. Timetable (NEW)
+            composable(Screen.Timetable.route) {
+                TimetableScreen()
             }
 
             // 4. Daily Focus
