@@ -1,7 +1,9 @@
 package com.example.benchmark.ui.screens
 
+import android.Manifest
 import android.app.DatePickerDialog
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.RingtoneManager
 import android.net.Uri
 import android.widget.DatePicker
@@ -33,10 +35,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
 import com.example.benchmark.TaskViewModel
+import com.example.benchmark.sortedByStartTime
+import com.example.benchmark.ui.Screen
 import com.example.benchmark.ui.components.DashboardTopBar
+import com.example.benchmark.ui.components.GeminiManager
 import com.example.benchmark.ui.components.TimelineTaskItem
+import com.example.benchmark.ui.components.VoiceOverlay
+import com.example.benchmark.ui.components.VoiceStatus
 import com.example.benchmark.ui.theme.BgColor
 import com.example.benchmark.ui.theme.ButtonColor
 import com.example.benchmark.ui.theme.DarkAccent
@@ -47,11 +56,24 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 @Composable
-fun DashboardScreen(viewModel: TaskViewModel = viewModel()) {
+fun DashboardScreen(navController: NavController, viewModel: TaskViewModel = viewModel()) {
     // 1. DATA & CONTEXT
     val allTasks by viewModel.tasks.collectAsState(initial = emptyList())
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+
+    // --- VOICE ASSISTANT ---
+    val voiceManager = remember { GeminiManager(context, viewModel) }
+    val voiceStatus by voiceManager.status.collectAsState()
+    val voiceTranscript by voiceManager.transcript.collectAsState()
+
+    DisposableEffect(Unit) {
+        onDispose { voiceManager.destroy() }
+    }
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted -> if (isGranted) voiceManager.startConversation() }
 
     // 2. STATE
     var selectedDate by remember { mutableStateOf(Calendar.getInstance()) }
@@ -64,7 +86,7 @@ fun DashboardScreen(viewModel: TaskViewModel = viewModel()) {
     val dbFormatter = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
 
     val selectedDateString = dbFormatter.format(selectedDate.time)
-    val todaysTasks = allTasks.filter { it.day == selectedDateString }
+    val todaysTasks = allTasks.filter { it.day == selectedDateString }.sortedByStartTime()
 
     var showAddDialog by remember { mutableStateOf(false) }
 
@@ -88,9 +110,28 @@ fun DashboardScreen(viewModel: TaskViewModel = viewModel()) {
 
     Scaffold(
         containerColor = BgColor,
-        topBar = { DashboardTopBar() },
+        topBar = {
+            DashboardTopBar(onProfileClick = { navController.navigate(Screen.Profile.route) })
+        },
         floatingActionButton = {
-            AddTaskButton(onClick = { showAddDialog = true })
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Voice assistant — speak to add, move, or delete tasks
+                PulsingMicButton(
+                    status = voiceStatus,
+                    onClick = {
+                        if (voiceStatus == VoiceStatus.IDLE) {
+                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                                voiceManager.startConversation()
+                            } else {
+                                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        } else {
+                            voiceManager.stopConversation()
+                        }
+                    }
+                )
+                AddTaskButton(onClick = { showAddDialog = true })
+            }
         }
     ) { paddingValues ->
 
@@ -131,6 +172,9 @@ fun DashboardScreen(viewModel: TaskViewModel = viewModel()) {
                 onDateSelected = { clickedDate -> selectedDate = clickedDate }
             )
 
+            // --- AI HINT LINE (rotates through example voice commands) ---
+            AiHintLine()
+
             Spacer(modifier = Modifier.height(8.dp))
 
             // --- TASK LIST ---
@@ -148,11 +192,19 @@ fun DashboardScreen(viewModel: TaskViewModel = viewModel()) {
                     modifier = Modifier.weight(1f)
                 ) {
                     items(todaysTasks) { task ->
-                        TimelineTaskItem(task)
+                        TimelineTaskItem(
+                            task = task,
+                            onToggleComplete = { viewModel.toggleComplete(context, it) },
+                            onToggleImportant = { viewModel.toggleImportant(it) },
+                            onDelete = { viewModel.deleteTask(context, it) }
+                        )
                     }
                 }
             }
         }
+
+        // --- VOICE OVERLAY ---
+        VoiceOverlay(status = voiceStatus, transcript = voiceTranscript)
 
         // --- SMART ADD DIALOG (Updated) ---
         if (showAddDialog) {
@@ -263,6 +315,20 @@ fun SmartAddDialog(onDismiss: () -> Unit, onAdd: (String, String, String, String
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                // Quick duration presets — one tap instead of typing
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(top = 8.dp)
+                ) {
+                    listOf("15m", "30m", "1h", "2h").forEach { preset ->
+                        FilterChip(
+                            selected = duration == preset,
+                            onClick = { duration = preset },
+                            label = { Text(preset) }
+                        )
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // Reminder Switch
@@ -310,10 +376,52 @@ fun SmartAddDialog(onDismiss: () -> Unit, onAdd: (String, String, String, String
                     val finalSound = if (hasReminder) selectedSoundUri else null
                     onAdd(name, duration, startTime, finalSound)
                 },
+                // No half-filled tasks: need at least a name and a start time
+                enabled = name.isNotBlank() && startTime.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(containerColor = Color.Black)
             ) { Text("Add", color = Color.White) }
         }
     )
+}
+
+// --- AI HINT LINE ---
+// One line under the calendar that teaches users what the mic can do,
+// cycling through real example commands.
+@Composable
+fun AiHintLine() {
+    val hints = remember {
+        listOf(
+            "\"Add gym at 6 PM for 1 hour\"",
+            "\"Move gym to 7:30\"",
+            "\"Delete gym\"",
+            "\"Mark gym as done\"",
+            "\"What's my schedule?\""
+        )
+    }
+    var hintIndex by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(4000)
+            hintIndex = (hintIndex + 1) % hints.size
+        }
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+    ) {
+        Text("🎙️", fontSize = 12.sp)
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = "Tap the mic and say: ${hints[hintIndex]}",
+            color = SecondaryText,
+            fontSize = 12.sp,
+            maxLines = 1
+        )
+    }
 }
 
 // --- HELPER COMPONENT (Day Selector) ---

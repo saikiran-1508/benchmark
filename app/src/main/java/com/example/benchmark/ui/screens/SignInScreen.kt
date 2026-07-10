@@ -13,6 +13,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,6 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.benchmark.AuthViewModel
@@ -39,6 +42,7 @@ fun SignInScreen(
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
+    var showPassword by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     // --- GOOGLE SIGN IN SETUP ---
@@ -56,33 +60,37 @@ fun SignInScreen(
     val googleLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
-            try {
-                val account = task.getResult(ApiException::class.java)
-                val idToken = account.idToken
-                if (idToken != null) {
-                    // Send Token to Firebase
-                    authViewModel.signInWithGoogle(idToken,
-                        onSuccess = {
-                            isLoading = false
-                            onLoginSuccess()
-                        },
-                        onError = { error ->
-                            isLoading = false
-                            Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
-                        }
-                    )
-                } else {
-                    isLoading = false
-                    Toast.makeText(context, "Google Token was null", Toast.LENGTH_SHORT).show()
-                }
-            } catch (e: ApiException) {
+        // Parse the result even when resultCode != OK: configuration errors
+        // (like a missing SHA-1 in Firebase) come back as "cancelled" with a
+        // hidden status code, and we must show the user what went wrong.
+        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+        try {
+            val account = task.getResult(ApiException::class.java)
+            val idToken = account.idToken
+            if (idToken != null) {
+                authViewModel.signInWithGoogle(idToken,
+                    onSuccess = {
+                        isLoading = false
+                        onLoginSuccess()
+                    },
+                    onError = { error ->
+                        isLoading = false
+                        Toast.makeText(context, error, Toast.LENGTH_LONG).show()
+                    }
+                )
+            } else {
                 isLoading = false
-                Toast.makeText(context, "Google Sign In Failed: ${e.statusCode}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Google didn't return a sign-in token. Try again.", Toast.LENGTH_LONG).show()
             }
-        } else {
-            isLoading = false // User cancelled
+        } catch (e: ApiException) {
+            isLoading = false
+            val message = when (e.statusCode) {
+                12501 -> null // user actually cancelled the picker — stay quiet
+                10 -> "Google Sign-In isn't configured for this build (SHA-1 mismatch). Use email sign-in for now."
+                7 -> "No internet connection. Check your network and try again."
+                else -> "Google Sign-In failed (code ${e.statusCode}). Try email sign-in instead."
+            }
+            message?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
         }
     }
     // ----------------------------
@@ -119,7 +127,17 @@ fun SignInScreen(
                 value = password, onValueChange = { password = it },
                 label = { Text("Password", color = Color.White.copy(alpha = 0.8f)) },
                 leadingIcon = { Icon(Icons.Default.Lock, null, tint = accentColor) },
-                singleLine = true, visualTransformation = PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { showPassword = !showPassword }) {
+                        Icon(
+                            if (showPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = if (showPassword) "Hide password" else "Show password",
+                            tint = Color.White.copy(alpha = 0.6f)
+                        )
+                    }
+                },
+                singleLine = true,
+                visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 modifier = Modifier.fillMaxWidth(),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -127,7 +145,23 @@ fun SignInScreen(
                     focusedBorderColor = accentColor, unfocusedBorderColor = Color.White.copy(alpha = 0.3f), cursorColor = accentColor
                 )
             )
-            Spacer(modifier = Modifier.height(32.dp))
+
+            // Forgot password — sends a reset email to the address typed above
+            Text(
+                text = "Forgot Password?",
+                color = accentColor,
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .padding(top = 8.dp)
+                    .clickable {
+                        authViewModel.resetPassword(email,
+                            onSuccess = { Toast.makeText(context, "Reset link sent to $email — check your inbox", Toast.LENGTH_LONG).show() },
+                            onError = { msg -> Toast.makeText(context, msg, Toast.LENGTH_LONG).show() }
+                        )
+                    }
+            )
+            Spacer(modifier = Modifier.height(24.dp))
 
             // Sign In Button
             Button(

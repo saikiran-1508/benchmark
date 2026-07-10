@@ -1,21 +1,91 @@
 package com.example.benchmark.ui
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import com.example.benchmark.AuthViewModel
+import com.example.benchmark.TaskViewModel
+import com.example.benchmark.ui.components.BottomNavBar
+import com.example.benchmark.ui.screens.DailyFocusScreen
+import com.example.benchmark.ui.screens.DashboardScreen
+import com.example.benchmark.ui.screens.ProfileScreen
+import com.example.benchmark.ui.screens.SignInScreen
+import com.example.benchmark.ui.screens.SignUpScreen
+import com.example.benchmark.ui.screens.TimetableScreen
+import com.example.benchmark.ui.theme.BgColor
 
-sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
-    // Auth Routes
-    object Login : Screen("login", "Login", Icons.Default.Person)
-    object SignUp : Screen("signup", "Sign Up", Icons.Default.Person)
+@Composable
+fun AppNavigation(viewModel: TaskViewModel) {
+    val navController = rememberNavController()
+    val authViewModel: AuthViewModel = viewModel()
 
-    // Main Tabs
-    object Dashboard : Screen("dashboard", "Home", Icons.Default.Home)
-    object Timetable : Screen("timetable", "Week", Icons.Default.DateRange) // <--- NEW
-    object DailyFocus : Screen("daily_focus", "Focus", Icons.Default.PlayArrow)
-    object Profile : Screen("profile", "Profile", Icons.Default.AccountCircle)
+    // Hide the bottom bar on the login/signup screens
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+    val isAuthScreen = currentRoute == "signin" || currentRoute == "signup"
+
+    Scaffold(
+        containerColor = BgColor,
+        bottomBar = { if (!isAuthScreen) BottomNavBar(navController = navController) }
+    ) { paddingValues ->
+        NavHost(
+            navController = navController,
+            // Already signed in? Skip the login screen entirely.
+            startDestination = if (authViewModel.isUserLoggedIn()) Screen.Dashboard.route else "signin",
+            modifier = Modifier.padding(paddingValues)
+        ) {
+            // --- AUTH FLOW ---
+            composable("signin") {
+                SignInScreen(
+                    authViewModel = authViewModel,
+                    onLoginSuccess = {
+                        navController.navigate(Screen.Dashboard.route) {
+                            popUpTo(0) { inclusive = true } // clear auth screens from back stack
+                        }
+                    },
+                    onNavigateToSignUp = { navController.navigate("signup") }
+                )
+            }
+            composable("signup") {
+                SignUpScreen(
+                    authViewModel = authViewModel,
+                    onSignUpSuccess = {
+                        navController.navigate(Screen.Dashboard.route) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    },
+                    onNavigateToLogin = { navController.popBackStack() }
+                )
+            }
+
+            // --- MAIN APP ---
+            composable(Screen.Dashboard.route) {
+                DashboardScreen(navController = navController, viewModel = viewModel)
+            }
+            composable(Screen.Timetable.route) {
+                TimetableScreen(viewModel = viewModel)
+            }
+            composable(Screen.DailyFocus.route) {
+                DailyFocusScreen(viewModel = viewModel)
+            }
+            composable(Screen.Profile.route) {
+                ProfileScreen(
+                    viewModel = viewModel,
+                    authViewModel = authViewModel,
+                    onSignOut = {
+                        navController.navigate("signin") {
+                            popUpTo(0) { inclusive = true } // sign out clears everything
+                        }
+                    }
+                )
+            }
+        }
+    }
 }

@@ -1,18 +1,17 @@
 package com.example.benchmark
 
-import android.annotation.SuppressLint
-import android.app.AlarmManager
 import android.app.Application
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
-import android.util.Log
+import android.widget.Toast
+import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.benchmark.data.AppDatabase
 import com.example.benchmark.data.TaskEntity
-import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -23,87 +22,119 @@ data class Task(
     val name: String,
     val duration: String,
     val startTime: String,
-    val day: String
+    val day: String,
+    val isCompleted: Boolean = false,
+    val isImportant: Boolean = false,
+    val soundUri: String? = null
 )
+
+/** Chronological order for the day's list ("9:00 AM" before "2:30 PM"). */
+fun List<Task>.sortedByStartTime(): List<Task> {
+    val fmt = SimpleDateFormat("h:mm a", Locale.getDefault())
+    return sortedBy { task ->
+        runCatching { fmt.parse(task.startTime)?.time }.getOrNull() ?: Long.MAX_VALUE
+    }
+}
 
 class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = AppDatabase.getDatabase(application)
     private val taskDao = db.taskDao()
 
-    // Convert Database Entity -> UI Model
-    val tasks: Flow<List<Task>> = taskDao.getAllTasks().map { entities ->
-        entities.map { entity ->
-            Task(
-                id = entity.id,
-                name = entity.name,
-                duration = entity.duration,
-                startTime = entity.startTime,
-                day = entity.day
-            )
-        }
-    }
+    // StateFlow so both the UI and the voice assistant can read the
+    // current schedule at any moment (tasks.value).
+    val tasks: StateFlow<List<Task>> = taskDao.getAllTasks()
+        .map { entities -> entities.map { it.toUiModel() } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    // --- ADD TASK (Now accepts soundUri) ---
+    fun tasksForDay(day: String): List<Task> = tasks.value.filter { it.day == day }
+
+    // --- ADD ---
     fun addTask(context: Context, name: String, duration: String, startTime: String, day: String, soundUri: String?) {
+        if (name.isBlank()) return
         viewModelScope.launch {
-            // 1. Save to Database
-            taskDao.insertTask(
+            val newId = taskDao.insertTask(
                 TaskEntity(
-                    name = name,
-                    duration = duration,
+                    name = name.trim(),
+                    duration = duration.ifBlank { "1h" },
                     startTime = startTime,
-                    day = day
+                    day = day,
+                    soundUri = soundUri
                 )
             )
-
-            // 2. Set the Alarm with the custom sound
-            scheduleReminder(context, day, startTime, name, soundUri)
-        }
-    }
-
-    @SuppressLint("ScheduleExactAlarm")
-    private fun scheduleReminder(context: Context, day: String, startTime: String, taskName: String, soundUri: String?) {
-        try {
-            // Parse the time string (e.g. "2025-12-25 10:30 AM")
-            val format = SimpleDateFormat("yyyy-MM-dd h:mm a", Locale.getDefault())
-            val dateString = "$day $startTime"
-            val date = format.parse(dateString)
-            val triggerTime = date?.time ?: return
-
-            // Don't schedule past events
-            if (triggerTime < System.currentTimeMillis()) return
-
-            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-
-            // Create the Intent for the Receiver
-            val intent = Intent(context, ReminderReceiver::class.java).apply {
-                putExtra("TASK_NAME", taskName)
-                // Pass the sound URI if it exists
-                if (soundUri != null) {
-                    putExtra("SOUND_URI", soundUri)
-                }
+            val scheduled = ReminderScheduler.schedule(context, newId.toInt(), day, startTime, name.trim(), soundUri)
+            if (!scheduled && startTime.isNotBlank()) {
+                // Don't fail silently: the user should know no alarm will ring
+                Toast.makeText(context, "That time already passed — task saved without a reminder", Toast.LENGTH_LONG).show()
             }
-
-            // Generate a unique ID for this alarm based on time
-            val requestCode = (triggerTime / 1000).toInt()
-
-            val pendingIntent = PendingIntent.getBroadcast(
-                context,
-                requestCode,
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            // Set the Exact Alarm
-            alarmManager.setExactAndAllowWhileIdle(
-                AlarmManager.RTC_WAKEUP,
-                triggerTime,
-                pendingIntent
-            )
-
-        } catch (e: Exception) {
-            Log.e("Benchmark", "Failed to schedule alarm", e)
         }
     }
+
+    // --- DELETE ---
+    fun deleteTask(context: Context, task: Task) {
+        viewModelScope.launch {
+            taskDao.deleteTaskById(task.id)
+            ReminderScheduler.cancel(context, task.id)
+            dismissAlarmUi(context, task.id)
+        }
+    }
+
+    // --- RESCHEDULE (move to a new time and/or day) ---
+    fun rescheduleTask(context: Context, task: Task, newStartTime: String, newDay: String = task.day) {
+        viewModelScope.launch {
+            taskDao.updateTask(task.toEntity().copy(startTime = newStartTime, day = newDay))
+            ReminderScheduler.cancel(context, task.id)
+            ReminderScheduler.schedule(context, task.id, newDay, newStartTime, task.name, task.soundUri)
+        }
+    }
+
+    // --- COMPLETE / UNCOMPLETE ---
+    fun toggleComplete(context: Context, task: Task) {
+        viewModelScope.launch {
+            val nowCompleted = !task.isCompleted
+            taskDao.updateTask(task.toEntity().copy(isCompleted = nowCompleted))
+            if (nowCompleted) {
+                // A finished task doesn't need its reminder anymore
+                ReminderScheduler.cancel(context, task.id)
+                dismissAlarmUi(context, task.id)
+            } else {
+                ReminderScheduler.schedule(context, task.id, task.day, task.startTime, task.name, task.soundUri)
+            }
+        }
+    }
+
+    // --- STAR / UNSTAR (starred tasks appear in the Focus tab) ---
+    fun toggleImportant(task: Task) {
+        viewModelScope.launch {
+            taskDao.updateTask(task.toEntity().copy(isImportant = !task.isImportant))
+        }
+    }
+
+    // --- CLEAR EVERYTHING (cancels all reminders first) ---
+    fun clearAllTasks(context: Context) {
+        viewModelScope.launch {
+            tasks.value.forEach { ReminderScheduler.cancel(context, it.id) }
+            taskDao.clearAll()
+        }
+    }
+
+    // If this task's alarm is ringing or its notification is showing, clear both
+    private fun dismissAlarmUi(context: Context, taskId: Int) {
+        if (AlarmSoundPlayer.ringingTaskId == taskId) AlarmSoundPlayer.stop()
+        NotificationManagerCompat.from(context).cancel(taskId)
+    }
+
+    // --- MAPPERS ---
+    private fun TaskEntity.toUiModel() = Task(id, name, duration, startTime, day, isCompleted, isImportant, soundUri)
+
+    private fun Task.toEntity() = TaskEntity(
+        id = id,
+        name = name,
+        duration = duration,
+        startTime = startTime,
+        day = day,
+        isCompleted = isCompleted,
+        isImportant = isImportant,
+        soundUri = soundUri
+    )
 }

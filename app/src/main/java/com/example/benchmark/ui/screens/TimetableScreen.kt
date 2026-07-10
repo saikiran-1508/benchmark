@@ -40,6 +40,7 @@ import com.example.benchmark.Task
 import com.example.benchmark.TaskViewModel
 // ✅ USING GEMINI MANAGER (FREE)
 import com.example.benchmark.ui.components.GeminiManager
+import com.example.benchmark.ui.components.VoiceOverlay
 import com.example.benchmark.ui.components.VoiceStatus
 import com.example.benchmark.ui.theme.BgColor
 import com.example.benchmark.ui.theme.DarkAccent
@@ -58,6 +59,12 @@ fun TimetableScreen(viewModel: TaskViewModel = viewModel()) {
     // --- GEMINI MANAGER ---
     val voiceManager = remember { GeminiManager(context, viewModel) }
     val voiceStatus by voiceManager.status.collectAsState()
+    val voiceTranscript by voiceManager.transcript.collectAsState()
+
+    // Release the speech recognizer + TTS when leaving this screen
+    DisposableEffect(Unit) {
+        onDispose { voiceManager.destroy() }
+    }
 
     // --- PERMISSION LAUNCHER ---
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -179,24 +186,12 @@ fun TimetableScreen(viewModel: TaskViewModel = viewModel()) {
                 }
             }
 
-            // AI OVERLAY (UPDATED TEXTS)
-            AnimatedVisibility(
-                visible = voiceStatus != VoiceStatus.IDLE,
-                enter = fadeIn(), exit = fadeOut(),
+            // AI OVERLAY (shared component)
+            VoiceOverlay(
+                status = voiceStatus,
+                transcript = voiceTranscript,
                 modifier = Modifier.align(Alignment.Center)
-            ) {
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.8f)), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = when(voiceStatus) {
-                            VoiceStatus.SPEAKING -> "Gemini Speaking..."
-                            VoiceStatus.LISTENING -> "Listening..."
-                            VoiceStatus.PROCESSING -> "Thinking..."
-                            else -> ""
-                        },
-                        color = Color.Cyan, fontSize = 28.sp, fontWeight = FontWeight.Bold
-                    )
-                }
-            }
+            )
         }
 
         // --- DIALOGS ---

@@ -9,6 +9,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,6 +21,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.benchmark.AuthViewModel
@@ -33,6 +36,7 @@ fun SignUpScreen(
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
+    var showPassword by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     // Cyberpunk Theme
@@ -63,9 +67,19 @@ fun SignUpScreen(
             // Password
             OutlinedTextField(
                 value = password, onValueChange = { password = it },
-                label = { Text("Password", color = Color.White) },
+                label = { Text("Password (min 6 characters)", color = Color.White) },
                 leadingIcon = { Icon(Icons.Default.Lock, null, tint = accentColor) },
-                singleLine = true, visualTransformation = PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { showPassword = !showPassword }) {
+                        Icon(
+                            if (showPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = if (showPassword) "Hide password" else "Show password",
+                            tint = Color.White.copy(alpha = 0.6f)
+                        )
+                    }
+                },
+                singleLine = true,
+                visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 modifier = Modifier.fillMaxWidth(),
                 colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = accentColor, unfocusedBorderColor = Color.White.copy(alpha = 0.3f), cursorColor = accentColor)
@@ -77,7 +91,14 @@ fun SignUpScreen(
                 value = confirmPassword, onValueChange = { confirmPassword = it },
                 label = { Text("Confirm Password", color = Color.White) },
                 leadingIcon = { Icon(Icons.Default.Lock, null, tint = accentColor) },
-                singleLine = true, visualTransformation = PasswordVisualTransformation(),
+                isError = confirmPassword.isNotEmpty() && confirmPassword != password,
+                supportingText = {
+                    if (confirmPassword.isNotEmpty() && confirmPassword != password) {
+                        Text("Passwords don't match", color = Color(0xFFFF6E6E))
+                    }
+                },
+                singleLine = true,
+                visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 modifier = Modifier.fillMaxWidth(),
                 colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = accentColor, unfocusedBorderColor = Color.White.copy(alpha = 0.3f), cursorColor = accentColor)
