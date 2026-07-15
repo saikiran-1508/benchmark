@@ -351,10 +351,15 @@ fun SmartAddDialog(onDismiss: () -> Unit, onAdd: (String, String, String, String
                             .background(Color.LightGray.copy(alpha = 0.3f))
                             .clickable {
                                 val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
-                                    putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_NOTIFICATION)
-                                    putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Select Task Tone")
+                                    // TYPE_ALL = alarms + ringtones + notification sounds
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALL)
+                                    putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Select Alarm Sound")
                                     putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
                                     putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true)
+                                    putExtra(
+                                        RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI,
+                                        android.provider.Settings.System.DEFAULT_ALARM_ALERT_URI
+                                    )
                                 }
                                 ringtoneLauncher.launch(intent)
                             }

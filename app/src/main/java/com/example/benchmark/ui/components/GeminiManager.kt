@@ -66,9 +66,9 @@ class GeminiManager(private val context: Context, private val viewModel: TaskVie
     // --- PUBLIC API ---
 
     fun startConversation() {
-        speak("Hi! You can add, move, or delete tasks. What would you like?") {
-            startListening()
-        }
+        // Whisper-style: no greeting speech — start transcribing the instant
+        // the mic is tapped. Words appear live in the overlay as you speak.
+        startListening()
     }
 
     fun stopConversation() {
@@ -116,13 +116,15 @@ class GeminiManager(private val context: Context, private val viewModel: TaskVie
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            // Give the speaker breathing room mid-sentence instead of cutting off
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
         }
 
         scope.launch {
             try {
                 _status.value = VoiceStatus.LISTENING
-                _transcript.value = "Listening..."
-                delay(300)
+                _transcript.value = "Listening… speak now"
                 speechRecognizer.setRecognitionListener(recognitionListener)
                 speechRecognizer.startListening(intent)
             } catch (e: Exception) {
@@ -139,13 +141,11 @@ class GeminiManager(private val context: Context, private val viewModel: TaskVie
         override fun onEndOfSpeech() { _status.value = VoiceStatus.PROCESSING }
 
         override fun onError(error: Int) {
+            // No slow spoken apologies — fail fast so the user can retry instantly
             if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
-                speak("I didn't hear anything. Try again from the mic button.") {
-                    _status.value = VoiceStatus.IDLE
-                }
-            } else {
-                _status.value = VoiceStatus.IDLE
+                _transcript.value = "Didn't catch that — tap the mic to retry"
             }
+            _status.value = VoiceStatus.IDLE
         }
 
         override fun onResults(results: Bundle?) {
@@ -158,7 +158,11 @@ class GeminiManager(private val context: Context, private val viewModel: TaskVie
             }
         }
 
-        override fun onPartialResults(p: Bundle?) {}
+        override fun onPartialResults(p: Bundle?) {
+            // Live transcription: words appear on screen as they're spoken
+            val partial = p?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+            if (!partial.isNullOrBlank()) _transcript.value = "\"$partial…\""
+        }
         override fun onEvent(e: Int, p: Bundle?) {}
     }
 
@@ -203,7 +207,7 @@ class GeminiManager(private val context: Context, private val viewModel: TaskVie
                 - Delete a task:   {"action":"delete","taskName":"Gym","reply":"Deleted Gym."}
                 - Move/reschedule: {"action":"move","taskName":"Gym","time":"7:00 PM","reply":"Moved Gym to 7 PM."}
                 - Mark done:       {"action":"complete","taskName":"Gym","reply":"Nice work! Marked Gym as done."}
-                - Mark important:  {"action":"important","taskName":"Gym","reply":"Starred Gym — it's in your Focus list."}
+                - Mark important:  {"action":"important","taskName":"Gym","reply":"Starred Gym — it's in your Important list."}
                 - Read schedule:   {"action":"list","reply":""}
                 - Small talk:      {"action":"chat","reply":"Hello! What shall we plan?"}
                 - Stop/bye:        {"action":"stop","reply":"Goodbye! Have a productive day."}
@@ -289,7 +293,7 @@ class GeminiManager(private val context: Context, private val viewModel: TaskVie
 
             Regex("""\b(important|star|starred|priority|focus)\b""").containsMatchIn(text) -> {
                 val name = extractName(text, listOf("mark", "make", "set", "as", "important", "star", "starred", "priority", "add", "to", "focus"))
-                VoiceCommand(action = "important", taskName = name, reply = "Starred $name — it's in your Focus list.")
+                VoiceCommand(action = "important", taskName = name, reply = "Starred $name — it's in your Important list.")
             }
 
             Regex("""\b(complete|completed|done|finish|finished|mark)\b""").containsMatchIn(text) -> {
@@ -333,8 +337,14 @@ class GeminiManager(private val context: Context, private val viewModel: TaskVie
 
         when (command.action) {
             "add" -> {
-                viewModel.addTask(context, command.taskName, command.duration, command.time.ifBlank { "9:00 AM" }, today, null)
-                speak(command.reply.ifBlank { "Added ${command.taskName}." }) { startListening() }
+                val time = command.time.ifBlank { "9:00 AM" }
+                val conflict = viewModel.findConflict(today, time, command.duration)
+                if (conflict != null) {
+                    speak("That slot is busy — ${viewModel.conflictMessage(conflict)}. Pick another time.") { startListening() }
+                } else {
+                    viewModel.addTask(context, command.taskName, command.duration, time, today, null)
+                    speak(command.reply.ifBlank { "Added ${command.taskName}." }) { startListening() }
+                }
             }
 
             "delete" -> {
@@ -350,8 +360,13 @@ class GeminiManager(private val context: Context, private val viewModel: TaskVie
             "move" -> {
                 val task = findTask(command.taskName)
                 if (task != null && command.time.isNotBlank()) {
-                    viewModel.rescheduleTask(context, task, command.time)
-                    speak(command.reply.ifBlank { "Moved ${task.name} to ${command.time}." }) { startListening() }
+                    val conflict = viewModel.findConflict(task.day, command.time, task.duration, excludeTaskId = task.id)
+                    if (conflict != null) {
+                        speak("Can't move there — ${viewModel.conflictMessage(conflict)}.") { startListening() }
+                    } else {
+                        viewModel.rescheduleTask(context, task, command.time)
+                        speak(command.reply.ifBlank { "Moved ${task.name} to ${command.time}." }) { startListening() }
+                    }
                 } else {
                     speak("I couldn't find a task called ${command.taskName} to move.") { startListening() }
                 }
@@ -371,7 +386,7 @@ class GeminiManager(private val context: Context, private val viewModel: TaskVie
                 val task = findTask(command.taskName)
                 if (task != null) {
                     if (!task.isImportant) viewModel.toggleImportant(task)
-                    speak(command.reply.ifBlank { "Starred ${task.name}. It's in your Focus list now." }) { startListening() }
+                    speak(command.reply.ifBlank { "Starred ${task.name}. It's in your Important list now." }) { startListening() }
                 } else {
                     speak("I couldn't find a task called ${command.taskName}.") { startListening() }
                 }

@@ -49,9 +49,46 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
     fun tasksForDay(day: String): List<Task> = tasks.value.filter { it.day == day }
 
-    // --- ADD ---
-    fun addTask(context: Context, name: String, duration: String, startTime: String, day: String, soundUri: String?) {
-        if (name.isBlank()) return
+    // --- CONFLICT DETECTION ---
+    // A task occupies [start, start + duration). No other task may begin or
+    // run inside that window on the same day.
+    private val timeFmt = SimpleDateFormat("h:mm a", Locale.getDefault())
+
+    private fun durationMinutes(duration: String): Int {
+        val n = duration.filter { it.isDigit() }.toIntOrNull() ?: 60
+        return if (duration.contains("m", ignoreCase = true)) n else n * 60
+    }
+
+    /** Returns the existing task that overlaps the proposed slot, or null if free. */
+    fun findConflict(day: String, startTime: String, duration: String, excludeTaskId: Int = -1): Task? {
+        val newStart = runCatching { timeFmt.parse(startTime)?.time }.getOrNull() ?: return null
+        val newEnd = newStart + durationMinutes(duration.ifBlank { "1h" }) * 60_000L
+        return tasks.value
+            .filter { it.day == day && it.id != excludeTaskId && !it.isCompleted }
+            .firstOrNull { existing ->
+                val s = runCatching { timeFmt.parse(existing.startTime)?.time }.getOrNull()
+                    ?: return@firstOrNull false
+                val e = s + durationMinutes(existing.duration) * 60_000L
+                newStart < e && s < newEnd
+            }
+    }
+
+    fun conflictMessage(conflict: Task): String {
+        val start = runCatching { timeFmt.parse(conflict.startTime)?.time }.getOrNull()
+        val end = start?.let { timeFmt.format(java.util.Date(it + durationMinutes(conflict.duration) * 60_000L)) }
+        return "'${conflict.name}' is already running until ${end ?: "later"}"
+    }
+
+    // --- ADD (returns false and warns if the slot is occupied) ---
+    fun addTask(context: Context, name: String, duration: String, startTime: String, day: String, soundUri: String?): Boolean {
+        if (name.isBlank()) return false
+
+        val conflict = findConflict(day, startTime, duration)
+        if (conflict != null) {
+            Toast.makeText(context, "Slot busy: ${conflictMessage(conflict)}", Toast.LENGTH_LONG).show()
+            return false
+        }
+
         viewModelScope.launch {
             val newId = taskDao.insertTask(
                 TaskEntity(
@@ -68,6 +105,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 Toast.makeText(context, "That time already passed — task saved without a reminder", Toast.LENGTH_LONG).show()
             }
         }
+        return true
     }
 
     // --- DELETE ---

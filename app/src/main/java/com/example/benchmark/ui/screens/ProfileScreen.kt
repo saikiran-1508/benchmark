@@ -311,7 +311,7 @@ private fun VoiceGuideDialog(onDismiss: () -> Unit) {
                 VoiceExample("“Move gym to 7:30”", "Reschedules it")
                 VoiceExample("“Delete gym”", "Removes it")
                 VoiceExample("“Mark gym as done”", "Completes it, keeps your streak")
-                VoiceExample("“Mark gym as important”", "Stars it into your Focus tab")
+                VoiceExample("“Mark gym as important”", "Stars it into your Important tab")
                 VoiceExample("“What's my schedule?”", "Reads today aloud")
                 VoiceExample("“Stop”", "Ends the conversation")
                 Spacer(modifier = Modifier.height(12.dp))

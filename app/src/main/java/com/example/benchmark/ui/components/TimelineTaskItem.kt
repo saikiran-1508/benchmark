@@ -108,11 +108,11 @@ fun TimelineTaskItem(
                     textDecoration = if (task.isCompleted) TextDecoration.LineThrough else TextDecoration.None,
                     modifier = Modifier.weight(1f)
                 )
-                // Star = important: the task joins the Focus tab
+                // Star = important: the task joins the Important tab
                 IconButton(onClick = { onToggleImportant(task) }) {
                     Icon(
                         imageVector = if (task.isImportant) Icons.Default.Star else Icons.Default.StarBorder,
-                        contentDescription = if (task.isImportant) "Remove from Focus" else "Add to Focus",
+                        contentDescription = if (task.isImportant) "Remove from Important" else "Mark Important",
                         tint = if (task.isImportant) Color(0xFFFFC107) else SecondaryText
                     )
                 }

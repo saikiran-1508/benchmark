@@ -158,10 +158,15 @@ fun TimetableScreen(viewModel: TaskViewModel = viewModel()) {
                                 .padding(start = startPadding)
                                 .clickable {
                                     if (copiedTask != null) {
-                                        // Paste Logic
+                                        // Paste Logic — blocked if another task occupies this window
                                         val newTime = String.format("%d:00 %s", if(hour > 12) hour-12 else hour, if(hour>=12)"PM" else "AM")
-                                        viewModel.addTask(context, copiedTask!!.name, copiedTask!!.duration, newTime, todayString, null)
-                                        coroutineScope.launch { snackbarHostState.showSnackbar("Pasted task") }
+                                        val pasted = viewModel.addTask(context, copiedTask!!.name, copiedTask!!.duration, newTime, todayString, null)
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar(
+                                                if (pasted) "Pasted '${copiedTask!!.name}' at $newTime — tap more slots or Cancel"
+                                                else "Slot busy — another task is running here"
+                                            )
+                                        }
                                     } else {
                                         // Add Logic
                                         clickedHour = hour
